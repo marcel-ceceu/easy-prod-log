@@ -16,60 +16,66 @@ const Index = () => {
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProdDesc, setNewProdDesc] = useState("");
   const [newQtyOpen, setNewQtyOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Fluxo de busca: produto selecionado → popup quantidade
   const handleProductSelect = (produto: ProdutoReferencia) => {
     setSelectedProduct(produto);
-    setError(null);
     setQtyOpen(true);
   };
 
   const handleQtyConfirm = async (qty: number) => {
     if (!selectedProduct) return;
-    setLoading(true);
-    setError(null);
+    const produto = selectedProduct;
 
-    const { error: insertError } = await supabase.from("produtos_inseridos").insert({
-      codprod: selectedProduct.codprod,
-      qtd: qty,
-      novo: "N",
-    });
-
-    setLoading(false);
-    if (insertError) {
-      setError("Erro ao registrar: " + insertError.message);
-      return;
-    }
-
+    // Fecha imediatamente (UI otimista)
     setQtyOpen(false);
     setSelectedProduct(null);
     toast({
       title: "Produto registrado!",
-      description: `${selectedProduct.descrprod || selectedProduct.codprod} — QTD: ${qty}`,
+      description: `${produto.descrprod || produto.codprod} — QTD: ${qty}`,
       className: "bg-green-600 text-white border-green-700",
     });
+
+    // Insert em background
+    const { error: insertError } = await supabase.from("produtos_inseridos").insert({
+      codprod: produto.codprod,
+      qtd: qty,
+      novo: "N",
+    });
+
+    if (insertError) {
+      toast({
+        title: "Erro ao registrar!",
+        description: insertError.message,
+        variant: "destructive",
+      });
+    }
   };
 
   // Fluxo novo produto: descrição → quantidade
   const handleNewProductDesc = (desc: string) => {
     setNewProdDesc(desc);
     setNewProdOpen(false);
-    setError(null);
     setNewQtyOpen(true);
   };
 
   const handleNewQtyConfirm = async (qty: number) => {
-    setLoading(true);
-    setError(null);
+    const desc = newProdDesc;
 
-    // Gerar CODPROD via função do banco
+    // Fecha imediatamente (UI otimista)
+    setNewQtyOpen(false);
+    setNewProdDesc("");
+    toast({
+      title: "Registrando novo produto...",
+      description: desc,
+      className: "bg-green-600 text-white border-green-700",
+    });
+
+    // Gerar código + insert em background
     const { data: codData, error: codError } = await supabase.rpc("next_codprod_novo");
 
     if (codError || !codData) {
-      setLoading(false);
-      setError("Erro ao gerar código: " + (codError?.message || "desconhecido"));
+      toast({ title: "Erro ao gerar código!", description: codError?.message || "desconhecido", variant: "destructive" });
       return;
     }
 
@@ -77,22 +83,12 @@ const Index = () => {
       codprod: codData,
       qtd: qty,
       novo: "S",
-      descrprod: newProdDesc,
+      descrprod: desc,
     });
 
-    setLoading(false);
     if (insertError) {
-      setError("Erro ao registrar: " + insertError.message);
-      return;
+      toast({ title: "Erro ao registrar!", description: insertError.message, variant: "destructive" });
     }
-
-    setNewQtyOpen(false);
-    setNewProdDesc("");
-    toast({
-      title: "Novo produto registrado!",
-      description: `${newProdDesc} — Código: ${codData} — QTD: ${qty}`,
-      className: "bg-green-600 text-white border-green-700",
-    });
   };
 
   return (
@@ -117,18 +113,13 @@ const Index = () => {
       {/* Popup quantidade — produto existente */}
       <QuantityDialog
         open={qtyOpen}
-        onOpenChange={(open) => {
-          setQtyOpen(open);
-          if (!open) setError(null);
-        }}
+        onOpenChange={setQtyOpen}
         onConfirm={handleQtyConfirm}
         productLabel={
           selectedProduct
             ? `${selectedProduct.refforn || ""} · ${selectedProduct.marca || ""} · ${selectedProduct.descrprod || ""}`
             : ""
         }
-        loading={loading}
-        error={error}
       />
 
       {/* Popup descrição — novo produto */}
@@ -141,14 +132,9 @@ const Index = () => {
       {/* Popup quantidade — novo produto */}
       <QuantityDialog
         open={newQtyOpen}
-        onOpenChange={(open) => {
-          setNewQtyOpen(open);
-          if (!open) setError(null);
-        }}
+        onOpenChange={setNewQtyOpen}
         onConfirm={handleNewQtyConfirm}
         productLabel={`Novo: ${newProdDesc}`}
-        loading={loading}
-        error={error}
       />
     </div>
   );
