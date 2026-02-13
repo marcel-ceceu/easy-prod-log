@@ -15,8 +15,6 @@ interface QuantityDialogProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: (qty: number) => void;
   productLabel: string;
-  loading?: boolean;
-  error?: string | null;
 }
 
 export function QuantityDialog({
@@ -24,8 +22,6 @@ export function QuantityDialog({
   onOpenChange,
   onConfirm,
   productLabel,
-  loading,
-  error,
 }: QuantityDialogProps) {
   const [qty, setQty] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -77,13 +73,13 @@ export function QuantityDialog({
             placeholder="Ex: 10"
             className="text-lg h-12"
           />
-          {(validationError || error) && (
-            <p className="text-sm text-destructive">{validationError || error}</p>
+          {validationError && (
+            <p className="text-sm text-destructive">{validationError}</p>
           )}
         </div>
         <DialogFooter>
-          <Button onClick={handleConfirm} disabled={loading} className="w-full">
-            {loading ? "Registrando..." : "Confirmar"}
+          <Button onClick={handleConfirm} className="w-full">
+            Confirmar
           </Button>
         </DialogFooter>
       </DialogContent>
