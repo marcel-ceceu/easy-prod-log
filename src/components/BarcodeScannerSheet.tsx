@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { useZxing } from "react-zxing";
 import {
   Sheet,
@@ -20,79 +20,23 @@ interface BarcodeScannerSheetProps {
   onError: (err: Error) => void;
 }
 
-const Scanner = ({
-  onProductFound,
-  onNotFound,
-  onError,
-  onDone,
-}: {
-  onProductFound: (produto: ProdutoReferencia, codbarra: string) => void;
-  onNotFound: () => void;
-  onError: (err: Error) => void;
-  onDone: () => void;
-}) => {
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const lastScannedRef = useRef<string | null>(null);
-
-  // Force camera permission request before starting zxing
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: "environment" }, audio: false })
-      .then((s) => {
-        stream = s;
-        // Stop the temporary stream — zxing will create its own
-        stream.getTracks().forEach((t) => t.stop());
-        setPermissionGranted(true);
-      })
-      .catch((err) => {
-        if (err.name === "NotAllowedError") {
-          onError(new Error("Permissão de câmera negada. Habilite nas configurações do navegador."));
-        } else {
-          onError(new Error("Não foi possível acessar a câmera."));
-        }
-        onDone();
-      });
-
-    return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  if (!permissionGranted) {
-    return (
-      <p className="text-sm text-muted-foreground animate-pulse">
-        Solicitando acesso à câmera...
-      </p>
-    );
-  }
-
-  return (
-    <ScannerView
-      onProductFound={onProductFound}
-      onNotFound={onNotFound}
-      onError={onError}
-      onDone={onDone}
-      lastScannedRef={lastScannedRef}
-    />
-  );
-};
-
-/** Only mounts after camera permission is granted */
+/**
+ * Inner scanner – mounted/unmounted with the sheet so useZxing
+ * re-initialises cleanly each time (per react-zxing author advice).
+ */
 const ScannerView = ({
   onProductFound,
   onNotFound,
   onError,
   onDone,
-  lastScannedRef,
 }: {
   onProductFound: (produto: ProdutoReferencia, codbarra: string) => void;
   onNotFound: () => void;
   onError: (err: Error) => void;
   onDone: () => void;
-  lastScannedRef: React.MutableRefObject<string | null>;
 }) => {
+  const lastScannedRef = useRef<string | null>(null);
+
   const { ref } = useZxing({
     timeBetweenDecodingAttempts: 500,
     onResult: async (result) => {
@@ -122,14 +66,12 @@ const ScannerView = ({
       }
     },
     onError: (err) => {
-      // "No MultiFormat Readers were able to detect the code" fires on every
-      // frame without a barcode — this is normal, silently ignore it.
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("MultiFormat") || msg.includes("NotFoundException")) return;
       onError(err instanceof Error ? err : new Error(msg));
     },
     constraints: {
-      video: { facingMode: "environment" },
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     },
   });
@@ -160,7 +102,7 @@ export const BarcodeScannerSheet = ({
         </SheetHeader>
         <div className="flex-1 flex items-center justify-center overflow-hidden rounded-md bg-black mt-4">
           {open && (
-            <Scanner
+            <ScannerView
               onProductFound={onProductFound}
               onNotFound={onNotFound}
               onError={onError}
