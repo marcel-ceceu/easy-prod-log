@@ -1,106 +1,166 @@
 
 
-## Melhoria de Foco para Cameras Menos Potentes
+## Scanner V3 -- Foco Robusto e Decode Otimizado
 
-### Problema
+Todas as mudancas em `src/components/BarcodeScannerSheet.tsx`. Sem dependencias novas.
 
-Em celulares com cameras de menor qualidade, o `focusMode: "continuous"` passado nas constraints iniciais nem sempre e respeitado pelo navegador. Isso faz a imagem ficar embaçada e o ZXing nao conseguir decodificar. Alem disso, a resolucao de 1920x1080 pode ser alta demais para cameras fracas, fazendo o navegador entregar um stream de baixa qualidade ou com upscale artificial.
+### 1. Re-kick de foco mais inteligente (substituir manual/continuous toggle)
 
-### Solucao
+O re-kick atual alterna focusMode entre manual e continuous a cada 2s. Isso pode causar "piscadas" de desfoque em alguns devices. A nova abordagem:
 
-Todas as mudancas em `src/components/BarcodeScannerSheet.tsx`.
+- Verificar se o track ainda esta `live` antes de qualquer applyConstraints
+- Em vez de alternar focusMode, variar levemente o `focusDistance` (delta de +/- 0.05 ao redor do valor base) a cada ciclo. Isso forca a camera a refocar sem trocar o modo.
+- Fallback: se focusDistance nao for suportado, ai sim alternar manual/continuous como hoje.
+- Adicionar backoff em caso de erro consecutivo (parar de tentar apos 3 falhas seguidas, retomar apos 10s).
+- Checar `document.visibilityState` -- pausar o intervalo quando app esta em background.
 
-**1. Aplicar constraints avancadas apos o stream iniciar (applyConstraints)**
+### 2. Cleanup robusto de timers
 
-Apos o video comecar a rodar, acessar o `MediaStreamTrack` do video e usar `applyConstraints()` para forcar:
-- `focusMode: "continuous"` (redundancia intencional -- funciona melhor pos-stream)
-- `zoom: 2.0` (zoom digital leve para aproximar o codigo, muito eficaz em cameras fracas)
+- Alem do clearTimeout/clearInterval no return do useEffect, adicionar listener de `visibilitychange` para pausar/retomar o intervalo.
+- Verificar `track.readyState === "live"` antes de cada applyConstraints para evitar erros em tracks ja encerradas.
 
-Isso sera feito com um `useEffect` que observa o `ref` do video e chama `applyConstraints` na track assim que o stream estiver ativo.
+### 3. Exposure e white balance contínuos
 
-**2. Reduzir resolucao ideal com fallback inteligente**
+No `applyFocusConstraints` (pos-stream), alem de focusMode/focusDistance/zoom, tambem aplicar:
+- `exposureMode: "continuous"` (se suportado)
+- `whiteBalanceMode: "continuous"` (se suportado)
 
-Trocar a resolucao de `1920x1080` para `1280x720` como ideal. Cameras fracas tentam entregar 1080p e falham, resultando em frames borrados. 720p e mais realista e ainda suficiente para decodificar codigos de barras lineares.
+Isso melhora a leitura em ambientes com iluminacao variavel.
 
-**3. Adicionar focusDistance como hint**
+### 4. Decode rate control (timeBetweenDecodingAttempts)
 
-Na chamada `applyConstraints`, incluir `focusDistance` com valor baixo (ex: 0.15 a 0.25 metros) como `ideal`, orientando a camera a focar em objetos proximos -- que e exatamente o caso de leitura de codigo de barras.
+Manter em 250ms (equivale a ~4 fps de decode). O ZXing ja trabalha no frame atual do video, entao nao ha ganho em ir mais rapido -- apenas mais CPU. 250ms e o sweet spot.
 
-**4. Re-trigger de foco periodico**
+### 5. Torch toggle (ja implementado)
 
-Implementar um intervalo (`setInterval` a cada 2 segundos) que alterna o `focusMode` entre `"manual"` e `"continuous"`. Esse "kick" forca cameras que param de focar a reiniciar o auto-foco. E a tecnica mais eficaz para cameras que "travam" o foco.
+Manter como esta -- ja funcional.
 
-**5. Fallback de resolucao nas constraints iniciais**
-
-Usar o campo `advanced` das MediaStreamConstraints para tentar 1080p primeiro, mas aceitar 720p ou ate 640x480 como fallback, evitando que o getUserMedia falhe ou entregue um stream ruim.
+---
 
 ### Secao Tecnica
 
-Estrutura do `useEffect` pos-stream:
+**useEffect pos-stream reescrito:**
 
 ```typescript
 useEffect(() => {
   const video = ref.current;
   if (!video) return;
 
-  const applyFocusConstraints = () => {
+  let errorCount = 0;
+  let focusDistanceBase = 0;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let backoffId: ReturnType<typeof setTimeout> | null = null;
+
+  const getTrack = () => {
     const stream = video.srcObject as MediaStream;
-    if (!stream) return;
-    const track = stream.getVideoTracks()[0];
+    const track = stream?.getVideoTracks()[0];
+    return track?.readyState === "live" ? track : null;
+  };
+
+  const applyInitialConstraints = () => {
+    const track = getTrack();
     if (!track) return;
 
-    const capabilities = track.getCapabilities?.();
-
-    // Aplica focusMode + focusDistance + zoom se suportados
+    const caps = (track as any).getCapabilities?.();
     const advanced: any = {};
-    if (capabilities?.focusMode?.includes("continuous")) {
+
+    if (caps?.focusMode?.includes("continuous")) {
       advanced.focusMode = "continuous";
     }
-    if (capabilities?.focusDistance) {
-      advanced.focusDistance = capabilities.focusDistance.min + 0.1;
+    if (caps?.exposureMode?.includes("continuous")) {
+      advanced.exposureMode = "continuous";
     }
-    if (capabilities?.zoom) {
-      advanced.zoom = Math.min(2.0, capabilities.zoom.max);
+    if (caps?.whiteBalanceMode?.includes("continuous")) {
+      advanced.whiteBalanceMode = "continuous";
+    }
+    if (caps?.focusDistance) {
+      focusDistanceBase = caps.focusDistance.min + 0.1;
+      advanced.focusDistance = focusDistanceBase;
+    }
+    if (caps?.zoom) {
+      advanced.zoom = Math.min(2.0, caps.zoom.max);
     }
 
     if (Object.keys(advanced).length > 0) {
-      track.applyConstraints({ advanced: [advanced] });
+      track.applyConstraints({ advanced: [advanced] } as any).catch(() => {});
     }
   };
 
-  // Aguarda stream estar pronto
-  const timer = setTimeout(applyFocusConstraints, 1000);
+  const startKickInterval = () => {
+    if (intervalId) return;
+    let tick = 0;
 
-  // Re-kick de foco a cada 2s
-  const interval = setInterval(() => {
-    const stream = video.srcObject as MediaStream;
-    const track = stream?.getVideoTracks()[0];
-    if (!track) return;
-    track.applyConstraints({ advanced: [{ focusMode: "manual" }] })
-      .then(() => track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }))
-      .catch(() => {});
-  }, 2000);
+    intervalId = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+
+      const track = getTrack();
+      if (!track) return;
+
+      const caps = (track as any).getCapabilities?.();
+
+      // Prefer varying focusDistance slightly
+      if (caps?.focusDistance && focusDistanceBase > 0) {
+        const delta = (tick % 2 === 0) ? 0.05 : -0.05;
+        const fd = Math.max(caps.focusDistance.min,
+          Math.min(focusDistanceBase + delta, caps.focusDistance.max));
+        track.applyConstraints({
+          advanced: [{ focusDistance: fd }]
+        } as any).then(() => { errorCount = 0; }).catch(() => {
+          errorCount++;
+          if (errorCount >= 3) pauseAndBackoff();
+        });
+      } else {
+        // Fallback: toggle focusMode
+        track.applyConstraints({
+          advanced: [{ focusMode: "manual" }]
+        } as any)
+          .then(() => track.applyConstraints({
+            advanced: [{ focusMode: "continuous" }]
+          } as any))
+          .then(() => { errorCount = 0; })
+          .catch(() => {
+            errorCount++;
+            if (errorCount >= 3) pauseAndBackoff();
+          });
+      }
+      tick++;
+    }, 2000);
+  };
+
+  const pauseAndBackoff = () => {
+    if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    backoffId = setTimeout(() => {
+      errorCount = 0;
+      startKickInterval();
+    }, 10000);
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    } else {
+      startKickInterval();
+    }
+  };
+
+  const timer = setTimeout(() => {
+    applyInitialConstraints();
+    startKickInterval();
+  }, 800);
+
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
     clearTimeout(timer);
-    clearInterval(interval);
+    if (intervalId) clearInterval(intervalId);
+    if (backoffId) clearTimeout(backoffId);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }, [ref]);
 ```
 
-Constraints iniciais com fallback:
+**Constraints iniciais** permanecem iguais (720p com min 640x480) -- ja estao adequadas.
 
-```typescript
-constraints: {
-  video: {
-    facingMode: "environment",
-    width: { min: 640, ideal: 1280 },
-    height: { min: 480, ideal: 720 },
-    // @ts-ignore
-    focusMode: { ideal: "continuous" },
-  },
-  audio: false,
-}
-```
-
-Nenhuma dependencia nova. Tudo usa APIs nativas do navegador (`MediaStreamTrack.applyConstraints`, `getCapabilities`).
+**Resumo das mudancas no arquivo:**
+- Linhas 204-249: substituir o useEffect atual pelo novo com focus kick inteligente, visibility handling, exposure/whiteBalance, e backoff de erros.
+- Nenhuma outra mudanca no arquivo.
