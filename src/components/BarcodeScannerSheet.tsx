@@ -201,28 +201,44 @@ const ScannerView = ({
     },
   });
 
-  // Post-stream: apply advanced focus constraints + periodic focus kick
+  // Post-stream: apply advanced focus/exposure constraints + smart focus kick
   useEffect(() => {
     const video = ref.current;
     if (!video) return;
 
-    const applyFocusConstraints = () => {
+    let errorCount = 0;
+    let focusDistanceBase = 0;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let backoffId: ReturnType<typeof setTimeout> | null = null;
+
+    const getTrack = () => {
       const stream = video.srcObject as MediaStream;
-      if (!stream) return;
-      const track = stream.getVideoTracks()[0];
+      const track = stream?.getVideoTracks()[0];
+      return track?.readyState === "live" ? track : null;
+    };
+
+    const applyInitialConstraints = () => {
+      const track = getTrack();
       if (!track) return;
 
-      const capabilities = (track as any).getCapabilities?.();
+      const caps = (track as any).getCapabilities?.();
       const advanced: any = {};
 
-      if (capabilities?.focusMode?.includes("continuous")) {
+      if (caps?.focusMode?.includes("continuous")) {
         advanced.focusMode = "continuous";
       }
-      if (capabilities?.focusDistance) {
-        advanced.focusDistance = capabilities.focusDistance.min + 0.1;
+      if (caps?.exposureMode?.includes("continuous")) {
+        advanced.exposureMode = "continuous";
       }
-      if (capabilities?.zoom) {
-        advanced.zoom = Math.min(2.0, capabilities.zoom.max);
+      if (caps?.whiteBalanceMode?.includes("continuous")) {
+        advanced.whiteBalanceMode = "continuous";
+      }
+      if (caps?.focusDistance) {
+        focusDistanceBase = caps.focusDistance.min + 0.1;
+        advanced.focusDistance = focusDistanceBase;
+      }
+      if (caps?.zoom) {
+        advanced.zoom = Math.min(2.0, caps.zoom.max);
       }
 
       if (Object.keys(advanced).length > 0) {
@@ -230,21 +246,73 @@ const ScannerView = ({
       }
     };
 
-    const timer = setTimeout(applyFocusConstraints, 1000);
+    const startKickInterval = () => {
+      if (intervalId) return;
+      let tick = 0;
 
-    // Re-kick focus every 2s to unstick cameras that freeze focus
-    const interval = setInterval(() => {
-      const stream = video.srcObject as MediaStream;
-      const track = stream?.getVideoTracks()[0];
-      if (!track) return;
-      track.applyConstraints({ advanced: [{ focusMode: "manual" }] } as any)
-        .then(() => track.applyConstraints({ advanced: [{ focusMode: "continuous" }] } as any))
-        .catch(() => {});
-    }, 2000);
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "hidden") return;
+
+        const track = getTrack();
+        if (!track) return;
+
+        const caps = (track as any).getCapabilities?.();
+
+        if (caps?.focusDistance && focusDistanceBase > 0) {
+          const delta = (tick % 2 === 0) ? 0.05 : -0.05;
+          const fd = Math.max(caps.focusDistance.min,
+            Math.min(focusDistanceBase + delta, caps.focusDistance.max));
+          track.applyConstraints({
+            advanced: [{ focusDistance: fd }]
+          } as any).then(() => { errorCount = 0; }).catch(() => {
+            errorCount++;
+            if (errorCount >= 3) pauseAndBackoff();
+          });
+        } else {
+          track.applyConstraints({
+            advanced: [{ focusMode: "manual" }]
+          } as any)
+            .then(() => track.applyConstraints({
+              advanced: [{ focusMode: "continuous" }]
+            } as any))
+            .then(() => { errorCount = 0; })
+            .catch(() => {
+              errorCount++;
+              if (errorCount >= 3) pauseAndBackoff();
+            });
+        }
+        tick++;
+      }, 2000);
+    };
+
+    const pauseAndBackoff = () => {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      backoffId = setTimeout(() => {
+        errorCount = 0;
+        startKickInterval();
+      }, 10000);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      } else {
+        startKickInterval();
+      }
+    };
+
+    const timer = setTimeout(() => {
+      applyInitialConstraints();
+      startKickInterval();
+    }, 800);
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       clearTimeout(timer);
-      clearInterval(interval);
+      if (intervalId) clearInterval(intervalId);
+      if (backoffId) clearTimeout(backoffId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [ref]);
 
