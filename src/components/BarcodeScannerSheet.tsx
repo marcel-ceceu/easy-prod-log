@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getSafeErrorMessage } from "@/lib/safe-error";
 import { useZxing } from "react-zxing";
 import {
   Sheet,
@@ -43,7 +44,7 @@ export const BarcodeScannerSheet = ({
         .maybeSingle();
 
       if (error) {
-        onError(new Error(error.message));
+        onError(new Error(getSafeErrorMessage(error)));
         onOpenChange(false);
         return;
       }
