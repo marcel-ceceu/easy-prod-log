@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, ScanBarcode } from "lucide-react";
+import { BarcodeScannerSheet } from "@/components/BarcodeScannerSheet";
 
 type ProdutoReferencia = Tables<"produtos_referencia">;
 
@@ -25,6 +26,10 @@ const Contagem = () => {
   // Selected product state
   const [selectedProduct, setSelectedProduct] =
     useState<ProdutoReferencia | null>(null);
+  const [scannedCodbarra, setScannedCodbarra] = useState<string | null>(null);
+
+  // Scanner sheet state
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Quantity state
   const [qty, setQty] = useState("");
@@ -73,15 +78,30 @@ const Contagem = () => {
     return () => clearTimeout(timeout);
   }, [query]);
 
-  // Handle product selection
+  // Handle product selection (manual search)
   const handleSelect = useCallback((produto: ProdutoReferencia) => {
     setSelectedProduct(produto);
+    setScannedCodbarra(null);
     setQuery("");
     setResults([]);
     setQty("");
     setQtyError(null);
     setPhase("quantity");
   }, []);
+
+  // Handle product found via barcode scanner
+  const handleScannedProduct = useCallback(
+    (produto: ProdutoReferencia, codbarra: string) => {
+      setSelectedProduct(produto);
+      setScannedCodbarra(codbarra);
+      setQuery("");
+      setResults([]);
+      setQty("");
+      setQtyError(null);
+      setPhase("quantity");
+    },
+    []
+  );
 
   // Handle quantity confirm
   const handleQtyConfirm = useCallback(async () => {
@@ -97,6 +117,7 @@ const Contagem = () => {
 
     // Reset immediately (optimistic UI)
     setSelectedProduct(null);
+    setScannedCodbarra(null);
     setQty("");
     setQtyError(null);
     setPhase("search");
@@ -108,13 +129,15 @@ const Contagem = () => {
     });
 
     // Insert in background
+    const insertPayload = {
+      codprod: produto.codprod,
+      qtd: num,
+      novo: "N" as const,
+      ...(scannedCodbarra && { codbarra: scannedCodbarra }),
+    };
     const { error: insertError } = await supabase
       .from("produtos_inseridos")
-      .insert({
-        codprod: produto.codprod,
-        qtd: num,
-        novo: "N",
-      });
+      .insert(insertPayload);
 
     if (insertError) {
       toast({
@@ -123,7 +146,7 @@ const Contagem = () => {
         variant: "destructive",
       });
     }
-  }, [selectedProduct, qty]);
+  }, [selectedProduct, qty, scannedCodbarra]);
 
   const handleQtyKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -158,17 +181,29 @@ const Contagem = () => {
             >
               Buscar por REFFORN
             </label>
-            <Input
-              ref={searchInputRef}
-              id="search-refforn"
-              type="text"
-              placeholder="Ex: DCH26"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="text-base h-12"
-              autoComplete="off"
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <Input
+                ref={searchInputRef}
+                id="search-refforn"
+                type="text"
+                placeholder="Ex: DCH26"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="text-base h-12 flex-1"
+                autoComplete="off"
+                autoFocus
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-12 w-12 shrink-0"
+                onClick={() => setScannerOpen(true)}
+                aria-label="Escanear código de barras"
+              >
+                <ScanBarcode className="h-6 w-6" />
+              </Button>
+            </div>
 
             {loading && (
               <p className="text-sm text-muted-foreground">Buscando...</p>
@@ -259,6 +294,27 @@ const Contagem = () => {
           </div>
         )}
       </main>
+
+      <BarcodeScannerSheet
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onProductFound={handleScannedProduct}
+        onNotFound={() => {
+          toast({
+            title: "Produto não encontrado",
+            description:
+              "O código de barras não está cadastrado. Cadastre em produtos_referencia.referencia.",
+            variant: "destructive",
+          });
+        }}
+        onError={(err) => {
+          toast({
+            title: "Erro na câmera",
+            description: err.message,
+            variant: "destructive",
+          });
+        }}
+      />
     </div>
   );
 };
