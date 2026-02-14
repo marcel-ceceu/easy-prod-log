@@ -1,64 +1,59 @@
 
 
-## Sistema de Controle de Produtos
+## Busca Avancada de Produtos
 
-### Visão Geral
-Sistema web focado em eficiência para registro de contagem de produtos. Interface minimalista centrada na busca, com fluxo rápido de seleção → quantidade → registro.
+### Problema Atual
+A busca atual pesquisa apenas no campo `refforn` usando `ilike`, sem tratamento de acentuacao.
 
----
+### Solucao
 
-### 1. Configuração do Backend (Supabase)
-Criar duas tabelas no Supabase:
+**1. Migracao no banco de dados**
 
-**Tabela de Referência (`produtos_referencia`)**
-- Campos: REFFORN, CODPROD (chave), COMPLDESC, DESCRPROD, MARCA
-- Será populada manualmente pelo painel do Supabase
-- Busca em tempo real em todos os 5 campos
+Habilitar a extensao `unaccent` do PostgreSQL e criar uma funcao RPC `search_produtos` que:
+- Recebe um termo de busca como parametro
+- Remove acentos do termo e dos campos usando `unaccent()`
+- Faz `ILIKE` com `%termo%` em todos os 5 campos: `refforn`, `codprod`, `compldesc`, `descrprod`, `marca`
+- Combina os resultados com `OR` (qualquer campo que corresponda)
+- Limita a 5 resultados
 
-**Tabela de Registros (`produtos_inseridos`)**
-- Campos: id (auto), CODPROD, QTD, DTINSERT (automático), NOVO ("S" ou "N"), DESCRPROD (para produtos novos)
-- Permite múltiplas inserções do mesmo CODPROD (histórico)
+```sql
+CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA extensions;
 
-**Sequência para CODPROD de produtos novos**
-- Geração automática numérica sequencial (ex: 90001, 90002...)
+CREATE OR REPLACE FUNCTION public.search_produtos(search_term text)
+RETURNS SETOF public.produtos_referencia
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+  SELECT *
+  FROM public.produtos_referencia
+  WHERE
+    extensions.unaccent(COALESCE(refforn,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
+    OR extensions.unaccent(COALESCE(codprod,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
+    OR extensions.unaccent(COALESCE(compldesc,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
+    OR extensions.unaccent(COALESCE(descrprod,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
+    OR extensions.unaccent(COALESCE(marca,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
+  LIMIT 5;
+$$;
+```
 
----
+**2. Atualizar o frontend (`src/pages/Contagem.tsx`)**
 
-### 2. Tela Principal — Campo de Busca
-- Interface limpa com apenas o campo de busca centralizado e o botão "NOVO PRODUTO"
-- Design responsivo, otimizado para celulares
-- Sem menus de navegação ou abas extras
+Substituir a query direta com `ilike` por uma chamada RPC:
 
----
+```typescript
+const { data, error } = await supabase.rpc("search_produtos", {
+  search_term: query,
+});
+```
 
-### 3. Busca em Tempo Real
-- Busca automática conforme o usuário digita (debounce para performance)
-- Pesquisa simultânea em REFFORN, CODPROD, COMPLDESC, DESCRPROD e MARCA
-- Exibe no máximo **5 sugestões** no dropdown
-- Cada sugestão mostra: **REFFORN + MARCA + DESCRPROD**
-- Ao clicar na sugestão, abre o popup de quantidade
+**3. Atualizar o label da busca**
 
----
-
-### 4. Popup de Quantidade
-- Modal centralizado (≈1/3 da tela) com foco automático no campo
-- Aceita apenas valores numéricos (validação obrigatória)
-- Confirma com Enter ou botão
-- Após registro bem-sucedido: toast verde de confirmação → fecha modal → volta à busca
-- Em caso de erro: exibe mensagem clara, não fecha o modal
-
----
-
-### 5. Fluxo "NOVO PRODUTO"
-- Botão fixo e visível na interface
-- Passo 1: popup com campo DESCRPROD (descrição do produto)
-- Passo 2: popup de quantidade (mesmo comportamento do fluxo principal)
-- Registro com flag NOVO = "S" e CODPROD gerado automaticamente (sequencial numérico)
+Trocar "Buscar por REFFORN" para "Buscar produto" ja que agora busca em todos os campos.
 
 ---
 
-### 6. Feedback e Tratamento de Erros
-- Toast verde no canto superior direito para sucesso
-- Mensagem de erro clara caso a inserção no Supabase falhe
-- Sistema não avança para próximo produto em caso de falha
+### Resultado
+- Buscar "dch" encontra em qualquer campo, maiusculo ou minusculo
+- Buscar "açúcar" encontra "acucar" e vice-versa
+- Correspondencia parcial em inicio, meio ou fim do texto
 
