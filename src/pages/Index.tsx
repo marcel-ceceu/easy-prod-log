@@ -1,58 +1,21 @@
 import { useState } from "react";
-import { ProductSearch } from "@/components/ProductSearch";
-import { QuantityDialog } from "@/components/QuantityDialog";
+import { useNavigate } from "react-router-dom";
+import { RecentEntriesTable } from "@/components/RecentEntriesTable";
 import { NewProductDialog } from "@/components/NewProductDialog";
+import { QuantityDialog } from "@/components/QuantityDialog";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import type { Tables } from "@/integrations/supabase/types";
-import { Plus } from "lucide-react";
-
-type ProdutoReferencia = Tables<"produtos_referencia">;
+import { ClipboardList, Plus } from "lucide-react";
 
 const Index = () => {
-  const [selectedProduct, setSelectedProduct] = useState<ProdutoReferencia | null>(null);
-  const [qtyOpen, setQtyOpen] = useState(false);
+  const navigate = useNavigate();
+
+  // Fluxo novo produto (separado)
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProdDesc, setNewProdDesc] = useState("");
   const [newQtyOpen, setNewQtyOpen] = useState(false);
 
-  // Fluxo de busca: produto selecionado → popup quantidade
-  const handleProductSelect = (produto: ProdutoReferencia) => {
-    setSelectedProduct(produto);
-    setQtyOpen(true);
-  };
-
-  const handleQtyConfirm = async (qty: number) => {
-    if (!selectedProduct) return;
-    const produto = selectedProduct;
-
-    // Fecha imediatamente (UI otimista)
-    setQtyOpen(false);
-    setSelectedProduct(null);
-    toast({
-      title: "Produto registrado!",
-      description: `${produto.descrprod || produto.codprod} — QTD: ${qty}`,
-      className: "bg-green-600 text-white border-green-700",
-    });
-
-    // Insert em background
-    const { error: insertError } = await supabase.from("produtos_inseridos").insert({
-      codprod: produto.codprod,
-      qtd: qty,
-      novo: "N",
-    });
-
-    if (insertError) {
-      toast({
-        title: "Erro ao registrar!",
-        description: insertError.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Fluxo novo produto: descrição → quantidade
   const handleNewProductDesc = (desc: string) => {
     setNewProdDesc(desc);
     setNewProdOpen(false);
@@ -62,7 +25,6 @@ const Index = () => {
   const handleNewQtyConfirm = async (qty: number) => {
     const desc = newProdDesc;
 
-    // Fecha imediatamente (UI otimista)
     setNewQtyOpen(false);
     setNewProdDesc("");
     toast({
@@ -71,56 +33,84 @@ const Index = () => {
       className: "bg-green-600 text-white border-green-700",
     });
 
-    // Gerar código + insert em background
-    const { data: codData, error: codError } = await supabase.rpc("next_codprod_novo");
+    const { data: codData, error: codError } = await supabase.rpc(
+      "next_codprod_novo"
+    );
 
     if (codError || !codData) {
-      toast({ title: "Erro ao gerar código!", description: codError?.message || "desconhecido", variant: "destructive" });
+      toast({
+        title: "Erro ao gerar código!",
+        description: codError?.message || "desconhecido",
+        variant: "destructive",
+      });
       return;
     }
 
-    const { error: insertError } = await supabase.from("produtos_inseridos").insert({
-      codprod: codData,
-      qtd: qty,
-      novo: "S",
-      descrprod: desc,
-    });
+    const { error: insertError } = await supabase
+      .from("produtos_inseridos")
+      .insert({
+        codprod: codData,
+        qtd: qty,
+        novo: "S",
+        descrprod: desc,
+      });
 
     if (insertError) {
-      toast({ title: "Erro ao registrar!", description: insertError.message, variant: "destructive" });
+      toast({
+        title: "Erro ao registrar!",
+        description: insertError.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Novo produto registrado!",
+        description: `${desc} — QTD: ${qty}`,
+        className: "bg-green-600 text-white border-green-700",
+      });
+      // Reload to refresh table
+      window.location.reload();
     }
   };
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
-      <main className="flex-1 flex flex-col items-center justify-center px-4 gap-6">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+      <header className="border-b px-4 py-3">
+        <h1 className="text-xl font-bold text-foreground tracking-tight text-center">
           Controle de Produtos
         </h1>
+      </header>
 
-        <ProductSearch onSelect={handleProductSelect} />
+      <main className="flex-1 flex flex-col px-4 py-4 gap-4 max-w-2xl mx-auto w-full">
+        {/* Action buttons */}
+        <div className="flex gap-3">
+          <Button
+            onClick={() => navigate("/contagem")}
+            size="lg"
+            className="flex-1 gap-2 text-base"
+          >
+            <ClipboardList className="h-5 w-5" />
+            Iniciar Contagem
+          </Button>
 
-        <Button
-          onClick={() => setNewProdOpen(true)}
-          size="lg"
-          className="gap-2 text-base"
-        >
-          <Plus className="h-5 w-5" />
-          NOVO PRODUTO
-        </Button>
+          <Button
+            onClick={() => setNewProdOpen(true)}
+            size="lg"
+            variant="outline"
+            className="gap-2 text-base"
+          >
+            <Plus className="h-5 w-5" />
+            Novo Produto
+          </Button>
+        </div>
+
+        {/* Recent entries */}
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+            Últimos lançamentos
+          </h2>
+          <RecentEntriesTable />
+        </div>
       </main>
-
-      {/* Popup quantidade — produto existente */}
-      <QuantityDialog
-        open={qtyOpen}
-        onOpenChange={setQtyOpen}
-        onConfirm={handleQtyConfirm}
-        productLabel={
-          selectedProduct
-            ? `${selectedProduct.refforn || ""} · ${selectedProduct.marca || ""} · ${selectedProduct.descrprod || ""}`
-            : ""
-        }
-      />
 
       {/* Popup descrição — novo produto */}
       <NewProductDialog
