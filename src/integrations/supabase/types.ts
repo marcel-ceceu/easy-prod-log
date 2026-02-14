@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       produtos_inseridos: {
         Row: {
+          codbarra: string | null
           codprod: string
           descrprod: string | null
           dtinsert: string
@@ -24,6 +25,7 @@ export type Database = {
           qtd: number
         }
         Insert: {
+          codbarra?: string | null
           codprod: string
           descrprod?: string | null
           dtinsert?: string
@@ -32,6 +34,7 @@ export type Database = {
           qtd: number
         }
         Update: {
+          codbarra?: string | null
           codprod?: string
           descrprod?: string | null
           dtinsert?: string
