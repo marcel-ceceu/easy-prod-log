@@ -63,12 +63,9 @@ const Contagem = () => {
 
     const timeout = setTimeout(async () => {
       setLoading(true);
-      const searchTerm = `%${query}%`;
-      const { data, error } = await supabase
-        .from("produtos_referencia")
-        .select("*")
-        .ilike("refforn", searchTerm)
-        .limit(5);
+      const { data, error } = await supabase.rpc("search_produtos", {
+        search_term: query,
+      });
 
       setLoading(false);
       if (!error && data) {
@@ -180,7 +177,7 @@ const Contagem = () => {
               htmlFor="search-refforn"
               className="text-sm font-medium text-muted-foreground"
             >
-              Buscar por REFFORN
+              Buscar produto
             </label>
             <div className="flex gap-2">
               <Input
