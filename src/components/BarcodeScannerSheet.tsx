@@ -121,7 +121,11 @@ const ScannerView = ({
       }
     },
     onError: (err) => {
-      onError(err instanceof Error ? err : new Error(String(err)));
+      // "No MultiFormat Readers were able to detect the code" fires on every
+      // frame without a barcode — this is normal, silently ignore it.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("MultiFormat") || msg.includes("NotFoundException")) return;
+      onError(err instanceof Error ? err : new Error(msg));
     },
     constraints: {
       video: { facingMode: "environment" },
