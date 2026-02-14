@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { getSafeErrorMessage } from "@/lib/safe-error";
 import { useZxing } from "react-zxing";
 import {
   Sheet,
@@ -8,6 +7,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeErrorMessage } from "@/lib/safe-error";
 import type { Tables } from "@/integrations/supabase/types";
 
 type ProdutoReferencia = Tables<"produtos_referencia">;
@@ -20,17 +20,22 @@ interface BarcodeScannerSheetProps {
   onError: (err: Error) => void;
 }
 
-export const BarcodeScannerSheet = ({
-  open,
-  onOpenChange,
+/** Inner component – only mounted when the sheet is open, so the
+ *  useZxing hook initialises fresh each time the camera is needed. */
+const Scanner = ({
   onProductFound,
   onNotFound,
   onError,
-}: BarcodeScannerSheetProps) => {
+  onDone,
+}: {
+  onProductFound: (produto: ProdutoReferencia, codbarra: string) => void;
+  onNotFound: () => void;
+  onError: (err: Error) => void;
+  onDone: () => void;
+}) => {
   const lastScannedRef = useRef<string | null>(null);
 
   const { ref } = useZxing({
-    paused: !open,
     onResult: async (result) => {
       const code = result.getText();
       if (!code || code === lastScannedRef.current) return;
@@ -45,29 +50,45 @@ export const BarcodeScannerSheet = ({
 
       if (error) {
         onError(new Error(getSafeErrorMessage(error)));
-        onOpenChange(false);
+        onDone();
         return;
       }
 
       if (data) {
-        onOpenChange(false);
+        onDone();
         onProductFound(data, code);
       } else {
-        onOpenChange(false);
+        onDone();
         onNotFound();
       }
     },
     onError: (err) => {
       onError(err instanceof Error ? err : new Error(String(err)));
     },
+    constraints: {
+      video: { facingMode: "environment" },
+      audio: false,
+    },
   });
 
-  useEffect(() => {
-    if (open) {
-      lastScannedRef.current = null;
-    }
-  }, [open]);
+  return (
+    <video
+      ref={ref}
+      className="w-full h-full object-cover"
+      autoPlay
+      playsInline
+      muted
+    />
+  );
+};
 
+export const BarcodeScannerSheet = ({
+  open,
+  onOpenChange,
+  onProductFound,
+  onNotFound,
+  onError,
+}: BarcodeScannerSheetProps) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[70vh] flex flex-col">
@@ -76,12 +97,11 @@ export const BarcodeScannerSheet = ({
         </SheetHeader>
         <div className="flex-1 flex items-center justify-center overflow-hidden rounded-md bg-black mt-4">
           {open && (
-            <video
-              ref={ref}
-              className="w-full h-full object-cover"
-              autoPlay
-              playsInline
-              muted
+            <Scanner
+              onProductFound={onProductFound}
+              onNotFound={onNotFound}
+              onError={onError}
+              onDone={() => onOpenChange(false)}
             />
           )}
         </div>
