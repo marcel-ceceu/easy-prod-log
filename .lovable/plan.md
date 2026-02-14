@@ -1,59 +1,41 @@
 
 
-## Busca Avancada de Produtos
+## Ajuste de Layout da Home para Mobile
 
-### Problema Atual
-A busca atual pesquisa apenas no campo `refforn` usando `ilike`, sem tratamento de acentuacao.
+### Problema
+A tabela de ultimos lancamentos tem 5 colunas com larguras minimas fixas (`min-w-[100px]`, `min-w-[120px]`, etc.) que somadas ultrapassam a largura de telas de celular, forcando rolagem horizontal.
 
 ### Solucao
 
-**1. Migracao no banco de dados**
+Transformar a tabela em um layout de **cards empilhados** no mobile, mantendo a tabela no desktop.
 
-Habilitar a extensao `unaccent` do PostgreSQL e criar uma funcao RPC `search_produtos` que:
-- Recebe um termo de busca como parametro
-- Remove acentos do termo e dos campos usando `unaccent()`
-- Faz `ILIKE` com `%termo%` em todos os 5 campos: `refforn`, `codprod`, `compldesc`, `descrprod`, `marca`
-- Combina os resultados com `OR` (qualquer campo que corresponda)
-- Limita a 5 resultados
+**Arquivo: `src/components/RecentEntriesTable.tsx`**
 
-```sql
-CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA extensions;
+1. Substituir a tabela por cards responsivos para cada entrada:
+   - Cada card mostra: label (REFFORN/nome) em destaque, descricao abaixo, e QTD + Data + botoes de acao na mesma linha
+   - Usar layout flexbox com `flex-wrap` para que tudo caiba na tela
+   - Remover `min-w-*` fixos e a estrutura de tabela HTML
 
-CREATE OR REPLACE FUNCTION public.search_produtos(search_term text)
-RETURNS SETOF public.produtos_referencia
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = 'public'
-AS $$
-  SELECT *
-  FROM public.produtos_referencia
-  WHERE
-    extensions.unaccent(COALESCE(refforn,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
-    OR extensions.unaccent(COALESCE(codprod,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
-    OR extensions.unaccent(COALESCE(compldesc,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
-    OR extensions.unaccent(COALESCE(descrprod,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
-    OR extensions.unaccent(COALESCE(marca,'')) ILIKE '%' || extensions.unaccent(search_term) || '%'
-  LIMIT 5;
-$$;
-```
+2. Layout de cada card:
+   - Linha 1: Label do produto (bold) + badge "Novo" se aplicavel
+   - Linha 2: Descricao (truncada)
+   - Linha 3: QTD | Data | Botoes editar/excluir (alinhados a direita)
 
-**2. Atualizar o frontend (`src/pages/Contagem.tsx`)**
+3. Usar `overflow-hidden` no container pai em vez de `overflow-auto`
 
-Substituir a query direta com `ilike` por uma chamada RPC:
+**Arquivo: `src/pages/Index.tsx`**
 
-```typescript
-const { data, error } = await supabase.rpc("search_produtos", {
-  search_term: query,
-});
-```
+4. Adicionar `overflow-x-hidden` no container raiz para garantir que nada vaze horizontalmente
 
-**3. Atualizar o label da busca**
+**Arquivo: `src/index.css`**
 
-Trocar "Buscar por REFFORN" para "Buscar produto" ja que agora busca em todos os campos.
+5. Adicionar regra global `html, body { overflow-x: hidden; }` como seguranca extra
 
----
+### Secao Tecnica
 
-### Resultado
-- Buscar "dch" encontra em qualquer campo, maiusculo ou minusculo
-- Buscar "açúcar" encontra "acucar" e vice-versa
-- Correspondencia parcial em inicio, meio ou fim do texto
+- Container raiz: trocar `max-w-2xl` por `max-w-lg` para melhor aproveitamento em mobile
+- Cada entrada vira um `div` com `border-b` em vez de `TableRow`
+- Textos longos usam `truncate` e `break-words` para nunca estourar
+- Botoes de acao ficam compactos com `h-7 w-7`
+- Nenhuma largura minima fixa sera usada
 
