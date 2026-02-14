@@ -94,6 +94,7 @@ const ScannerView = ({
   lastScannedRef: React.MutableRefObject<string | null>;
 }) => {
   const { ref } = useZxing({
+    timeBetweenDecodingAttempts: 500,
     onResult: async (result) => {
       const code = result.getText();
       if (!code || code === lastScannedRef.current) return;
