@@ -23,6 +23,7 @@ export type Database = {
           id: string
           novo: string
           qtd: number
+          referencia: string | null
         }
         Insert: {
           codbarra?: string | null
@@ -32,6 +33,7 @@ export type Database = {
           id?: string
           novo?: string
           qtd: number
+          referencia?: string | null
         }
         Update: {
           codbarra?: string | null
@@ -41,11 +43,13 @@ export type Database = {
           id?: string
           novo?: string
           qtd?: number
+          referencia?: string | null
         }
         Relationships: []
       }
       produtos_referencia: {
         Row: {
+          codbarra: string | null
           codprod: string
           compldesc: string | null
           descrprod: string | null
@@ -53,6 +57,7 @@ export type Database = {
           refforn: string | null
         }
         Insert: {
+          codbarra?: string | null
           codprod: string
           compldesc?: string | null
           descrprod?: string | null
@@ -60,6 +65,7 @@ export type Database = {
           refforn?: string | null
         }
         Update: {
+          codbarra?: string | null
           codprod?: string
           compldesc?: string | null
           descrprod?: string | null
