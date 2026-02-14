@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getSafeErrorMessage } from "@/lib/safe-error";
 import { useNavigate } from "react-router-dom";
 import { RecentEntriesTable } from "@/components/RecentEntriesTable";
 import { NewProductDialog } from "@/components/NewProductDialog";
@@ -58,7 +59,7 @@ const Index = () => {
     if (insertError) {
       toast({
         title: "Erro ao registrar!",
-        description: insertError.message,
+        description: getSafeErrorMessage(insertError),
         variant: "destructive",
       });
     } else {

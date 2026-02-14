@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { getSafeErrorMessage } from "@/lib/safe-error";
 import {
   Table,
   TableBody,
@@ -55,7 +56,7 @@ export function RecentEntriesTable() {
     if (error) {
       toast({
         title: "Erro ao carregar registros",
-        description: error.message,
+        description: getSafeErrorMessage(error),
         variant: "destructive",
       });
       setLoading(false);
@@ -118,7 +119,7 @@ export function RecentEntriesTable() {
     if (error) {
       toast({
         title: "Erro ao editar",
-        description: error.message,
+        description: getSafeErrorMessage(error),
         variant: "destructive",
       });
       return;
@@ -147,7 +148,7 @@ export function RecentEntriesTable() {
     if (error) {
       toast({
         title: "Erro ao excluir",
-        description: error.message,
+        description: getSafeErrorMessage(error),
         variant: "destructive",
       });
       return;

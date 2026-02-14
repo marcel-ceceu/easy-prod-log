@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { getSafeErrorMessage } from "@/lib/safe-error";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,7 +143,7 @@ const Contagem = () => {
     if (insertError) {
       toast({
         title: "Erro ao registrar!",
-        description: insertError.message,
+        description: getSafeErrorMessage(insertError),
         variant: "destructive",
       });
     }
