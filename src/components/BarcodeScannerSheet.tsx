@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useZxing } from "react-zxing";
 import {
   Sheet,
@@ -11,15 +11,13 @@ import type { Tables } from "@/integrations/supabase/types";
 
 type ProdutoReferencia = Tables<"produtos_referencia">;
 
-const DEBOUNCE_MS = 2000;
-
-type BarcodeScannerSheetProps = {
+interface BarcodeScannerSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onProductFound: (produto: ProdutoReferencia, codbarra: string) => void;
   onNotFound: () => void;
-  onError?: (error: Error) => void;
-};
+  onError: (err: Error) => void;
+}
 
 export const BarcodeScannerSheet = ({
   open,
@@ -28,75 +26,67 @@ export const BarcodeScannerSheet = ({
   onNotFound,
   onError,
 }: BarcodeScannerSheetProps) => {
-  const lastCodeRef = useRef<{ code: string; time: number } | null>(null);
+  const lastScannedRef = useRef<string | null>(null);
 
-  const handleDecodeResult = useCallback(
-    async (result: { getText: () => string }) => {
-      const code = result.getText()?.trim();
-      if (!code) return;
-
-      const now = Date.now();
-      const last = lastCodeRef.current;
-      if (last && last.code === code && now - last.time < DEBOUNCE_MS) {
-        return;
-      }
-      lastCodeRef.current = { code, time: now };
+  const { ref } = useZxing({
+    paused: !open,
+    onResult: async (result) => {
+      const code = result.getText();
+      if (!code || code === lastScannedRef.current) return;
+      lastScannedRef.current = code;
 
       const { data, error } = await supabase
         .from("produtos_referencia")
         .select("*")
-        .or(`referencia.eq.${code},refforn.eq.${code},codprod.eq.${code}`)
+        .eq("referencia", code)
         .limit(1)
         .maybeSingle();
 
       if (error) {
-        onError?.(new Error(error.message));
+        onError(new Error(error.message));
+        onOpenChange(false);
         return;
       }
 
       if (data) {
-        onProductFound(data, code);
         onOpenChange(false);
+        onProductFound(data, code);
       } else {
+        onOpenChange(false);
         onNotFound();
       }
     },
-    [onProductFound, onNotFound, onOpenChange, onError]
-  );
-
-  const { ref } = useZxing({
-    onResult: handleDecodeResult,
     onError: (err) => {
-      if (err.name === "NotAllowedError") {
-        onError?.(new Error("Permissão de câmera negada. Habilite no navegador."));
-      } else {
-        onError?.(err);
-      }
-    },
-    paused: !open,
-    constraints: {
-      video: { facingMode: "environment" },
-      audio: false,
+      onError(err instanceof Error ? err : new Error(String(err)));
     },
   });
 
+  useEffect(() => {
+    if (open) {
+      lastScannedRef.current = null;
+    }
+  }, [open]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        className="h-[85vh] flex flex-col gap-4"
-      >
+      <SheetContent side="bottom" className="h-[70vh] flex flex-col">
         <SheetHeader>
           <SheetTitle>Escanear código de barras</SheetTitle>
         </SheetHeader>
-        <div className="flex-1 min-h-0 rounded-lg overflow-hidden bg-black">
-          <video
-            ref={ref}
-            className="w-full h-full object-cover"
-            playsInline
-            muted
-          />
+        <div className="flex-1 flex items-center justify-center overflow-hidden rounded-md bg-black mt-4">
+          {open && (
+            <video
+              ref={ref}
+              className="w-full h-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
+          )}
         </div>
+        <p className="text-sm text-muted-foreground text-center mt-2">
+          Aponte a câmera para o código de barras
+        </p>
       </SheetContent>
     </Sheet>
   );
