@@ -1,0 +1,1 @@
+ALTER TABLE public.produtos_referencia RENAME COLUMN codbarra TO referencia;

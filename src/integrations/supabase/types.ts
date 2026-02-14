@@ -49,27 +49,27 @@ export type Database = {
       }
       produtos_referencia: {
         Row: {
-          codbarra: string | null
           codprod: string
           compldesc: string | null
           descrprod: string | null
           marca: string | null
+          referencia: string | null
           refforn: string | null
         }
         Insert: {
-          codbarra?: string | null
           codprod: string
           compldesc?: string | null
           descrprod?: string | null
           marca?: string | null
+          referencia?: string | null
           refforn?: string | null
         }
         Update: {
-          codbarra?: string | null
           codprod?: string
           compldesc?: string | null
           descrprod?: string | null
           marca?: string | null
+          referencia?: string | null
           refforn?: string | null
         }
         Relationships: []
