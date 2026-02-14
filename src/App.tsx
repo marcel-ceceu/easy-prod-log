@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Contagem from "./pages/Contagem";
 import NotFound from "./pages/NotFound";
+import { InstallPWAPrompt } from "./components/InstallPWAPrompt";
 
 const queryClient = new QueryClient();
 
@@ -14,6 +15,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <InstallPWAPrompt />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
