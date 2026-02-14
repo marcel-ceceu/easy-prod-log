@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZxing } from "react-zxing";
 import {
   Sheet,
@@ -20,8 +20,6 @@ interface BarcodeScannerSheetProps {
   onError: (err: Error) => void;
 }
 
-/** Inner component – only mounted when the sheet is open, so the
- *  useZxing hook initialises fresh each time the camera is needed. */
 const Scanner = ({
   onProductFound,
   onNotFound,
@@ -33,8 +31,68 @@ const Scanner = ({
   onError: (err: Error) => void;
   onDone: () => void;
 }) => {
+  const [permissionGranted, setPermissionGranted] = useState(false);
   const lastScannedRef = useRef<string | null>(null);
 
+  // Force camera permission request before starting zxing
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: "environment" }, audio: false })
+      .then((s) => {
+        stream = s;
+        // Stop the temporary stream — zxing will create its own
+        stream.getTracks().forEach((t) => t.stop());
+        setPermissionGranted(true);
+      })
+      .catch((err) => {
+        if (err.name === "NotAllowedError") {
+          onError(new Error("Permissão de câmera negada. Habilite nas configurações do navegador."));
+        } else {
+          onError(new Error("Não foi possível acessar a câmera."));
+        }
+        onDone();
+      });
+
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  if (!permissionGranted) {
+    return (
+      <p className="text-sm text-muted-foreground animate-pulse">
+        Solicitando acesso à câmera...
+      </p>
+    );
+  }
+
+  return (
+    <ScannerView
+      onProductFound={onProductFound}
+      onNotFound={onNotFound}
+      onError={onError}
+      onDone={onDone}
+      lastScannedRef={lastScannedRef}
+    />
+  );
+};
+
+/** Only mounts after camera permission is granted */
+const ScannerView = ({
+  onProductFound,
+  onNotFound,
+  onError,
+  onDone,
+  lastScannedRef,
+}: {
+  onProductFound: (produto: ProdutoReferencia, codbarra: string) => void;
+  onNotFound: () => void;
+  onError: (err: Error) => void;
+  onDone: () => void;
+  lastScannedRef: React.MutableRefObject<string | null>;
+}) => {
   const { ref } = useZxing({
     onResult: async (result) => {
       const code = result.getText();
