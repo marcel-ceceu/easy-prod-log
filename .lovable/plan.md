@@ -1,98 +1,106 @@
 
 
-## Melhoria na Leitura de Codigos de Barras
+## Melhoria de Foco para Cameras Menos Potentes
 
-### Diagnostico
+### Problema
 
-A implementacao atual tem varios pontos fracos:
-- Video ocupa o container inteiro sem guias visuais -- usuario nao sabe onde posicionar
-- Resolucao de 1280x720 -- pode ser maior
-- Intervalo de 500ms entre tentativas -- pode ser mais rapido
-- Nenhum hint de decodificacao para a biblioteca ZXing -- nao usa TRY_HARDER
-- Sem feedback ao usuario quando o codigo e lido
-- Sem opcao de lanterna para ambientes escuros
-- A biblioteca `react-zxing` ja expoe `torch` (lanterna) mas nao estamos usando
+Em celulares com cameras de menor qualidade, o `focusMode: "continuous"` passado nas constraints iniciais nem sempre e respeitado pelo navegador. Isso faz a imagem ficar embaçada e o ZXing nao conseguir decodificar. Alem disso, a resolucao de 1920x1080 pode ser alta demais para cameras fracas, fazendo o navegador entregar um stream de baixa qualidade ou com upscale artificial.
 
 ### Solucao
 
-Tudo concentrado em um unico arquivo: `src/components/BarcodeScannerSheet.tsx`
+Todas as mudancas em `src/components/BarcodeScannerSheet.tsx`.
 
-**1. Overlay com guias visuais retangulares**
+**1. Aplicar constraints avancadas apos o stream iniciar (applyConstraints)**
 
-Adicionar um overlay absoluto sobre o video com:
-- Fundo semi-transparente escuro nas bordas (mascara)
-- Recorte retangular horizontal no centro (proporcao ~3:1, largura 80% da tela)
-- Cantos estilizados com bordas brancas nos 4 vertices do retangulo
-- Linha animada horizontal que percorre verticalmente dentro do recorte (efeito "scanning")
-- Texto instrucional abaixo do recorte
+Apos o video comecar a rodar, acessar o `MediaStreamTrack` do video e usar `applyConstraints()` para forcar:
+- `focusMode: "continuous"` (redundancia intencional -- funciona melhor pos-stream)
+- `zoom: 2.0` (zoom digital leve para aproximar o codigo, muito eficaz em cameras fracas)
 
-**2. Aumentar resolucao e frequencia**
+Isso sera feito com um `useEffect` que observa o `ref` do video e chama `applyConstraints` na track assim que o stream estiver ativo.
 
+**2. Reduzir resolucao ideal com fallback inteligente**
+
+Trocar a resolucao de `1920x1080` para `1280x720` como ideal. Cameras fracas tentam entregar 1080p e falham, resultando em frames borrados. 720p e mais realista e ainda suficiente para decodificar codigos de barras lineares.
+
+**3. Adicionar focusDistance como hint**
+
+Na chamada `applyConstraints`, incluir `focusDistance` com valor baixo (ex: 0.15 a 0.25 metros) como `ideal`, orientando a camera a focar em objetos proximos -- que e exatamente o caso de leitura de codigo de barras.
+
+**4. Re-trigger de foco periodico**
+
+Implementar um intervalo (`setInterval` a cada 2 segundos) que alterna o `focusMode` entre `"manual"` e `"continuous"`. Esse "kick" forca cameras que param de focar a reiniciar o auto-foco. E a tecnica mais eficaz para cameras que "travam" o foco.
+
+**5. Fallback de resolucao nas constraints iniciais**
+
+Usar o campo `advanced` das MediaStreamConstraints para tentar 1080p primeiro, mas aceitar 720p ou ate 640x480 como fallback, evitando que o getUserMedia falhe ou entregue um stream ruim.
+
+### Secao Tecnica
+
+Estrutura do `useEffect` pos-stream:
+
+```typescript
+useEffect(() => {
+  const video = ref.current;
+  if (!video) return;
+
+  const applyFocusConstraints = () => {
+    const stream = video.srcObject as MediaStream;
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+
+    const capabilities = track.getCapabilities?.();
+
+    // Aplica focusMode + focusDistance + zoom se suportados
+    const advanced: any = {};
+    if (capabilities?.focusMode?.includes("continuous")) {
+      advanced.focusMode = "continuous";
+    }
+    if (capabilities?.focusDistance) {
+      advanced.focusDistance = capabilities.focusDistance.min + 0.1;
+    }
+    if (capabilities?.zoom) {
+      advanced.zoom = Math.min(2.0, capabilities.zoom.max);
+    }
+
+    if (Object.keys(advanced).length > 0) {
+      track.applyConstraints({ advanced: [advanced] });
+    }
+  };
+
+  // Aguarda stream estar pronto
+  const timer = setTimeout(applyFocusConstraints, 1000);
+
+  // Re-kick de foco a cada 2s
+  const interval = setInterval(() => {
+    const stream = video.srcObject as MediaStream;
+    const track = stream?.getVideoTracks()[0];
+    if (!track) return;
+    track.applyConstraints({ advanced: [{ focusMode: "manual" }] })
+      .then(() => track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }))
+      .catch(() => {});
+  }, 2000);
+
+  return () => {
+    clearTimeout(timer);
+    clearInterval(interval);
+  };
+}, [ref]);
 ```
+
+Constraints iniciais com fallback:
+
+```typescript
 constraints: {
   video: {
     facingMode: "environment",
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
+    width: { min: 640, ideal: 1280 },
+    height: { min: 480, ideal: 720 },
+    // @ts-ignore
     focusMode: { ideal: "continuous" },
   },
   audio: false,
 }
 ```
 
-- Resolucao de 1920x1080 (era 1280x720)
-- `focusMode: "continuous"` para auto-foco continuo (suportado na maioria dos Android)
-- `timeBetweenDecodingAttempts`: reduzir de 500ms para 250ms
-
-**3. Hints de decodificacao ZXing**
-
-Usar `DecodeHintType` para melhorar a taxa de acerto:
-- `TRY_HARDER = true` -- algoritmo mais agressivo
-- `POSSIBLE_FORMATS` -- limitar aos formatos comuns de codigo de barras linear (EAN_13, EAN_8, CODE_128, CODE_39, UPC_A, UPC_E, ITF) para evitar falsos positivos e acelerar a decodificacao
-
-**4. Botao de lanterna (torch)**
-
-A biblioteca ja retorna `torch.isAvailable` e `torch.on()/off()`. Adicionar um botao no canto do overlay para ligar/desligar a lanterna do celular -- resolve o problema de ambientes escuros.
-
-**5. Feedback de sucesso**
-
-Quando um codigo for lido com sucesso:
-- Flash verde rapido no overlay (animacao CSS de 300ms)
-- Vibracao haptica via `navigator.vibrate(200)` (suportado em Android, ignorado silenciosamente em iOS)
-
-**6. Area de video retangular**
-
-Mudar o container do video de `flex-1` (ocupa toda a altura) para `aspect-video` (16:9), centralizado. Isso faz o video ter proporcao horizontal natural, alinhado com o formato dos codigos de barras.
-
-### Secao Tecnica
-
-Arquivo editado: `src/components/BarcodeScannerSheet.tsx`
-
-Estrutura do componente `ScannerView` apos as mudancas:
-
-```
-<div className="relative aspect-video w-full">
-  <video ref={ref} ... />
-
-  {/* Overlay com mascara e recorte */}
-  <div className="absolute inset-0">
-    {/* Mascara escura com recorte transparente via CSS clip-path */}
-    {/* Cantos brancos nos vertices */}
-    {/* Linha animada de scan */}
-  </div>
-
-  {/* Botao torch no canto superior direito */}
-  {torch.isAvailable && (
-    <Button onClick={toggle} ...>
-      <Flashlight />
-    </Button>
-  )}
-
-  {/* Flash verde de sucesso (condicional) */}
-  {scanned && <div className="absolute inset-0 bg-green-500/30 animate-fade-out" />}
-</div>
-```
-
-Animacao CSS para a linha de scan e o flash de sucesso serao adicionadas inline ou via classes Tailwind com `@keyframes` no proprio componente.
-
-Nenhuma dependencia nova necessaria -- tudo ja esta disponivel com `react-zxing`, `lucide-react` e Tailwind.
+Nenhuma dependencia nova. Tudo usa APIs nativas do navegador (`MediaStreamTrack.applyConstraints`, `getCapabilities`).
