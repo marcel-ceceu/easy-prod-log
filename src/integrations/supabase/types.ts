@@ -80,6 +80,23 @@ export type Database = {
     }
     Functions: {
       next_codprod_novo: { Args: never; Returns: string }
+      search_produtos: {
+        Args: { search_term: string }
+        Returns: {
+          codprod: string
+          compldesc: string | null
+          descrprod: string | null
+          marca: string | null
+          referencia: string | null
+          refforn: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "produtos_referencia"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
     }
     Enums: {
       [_ in never]: never
