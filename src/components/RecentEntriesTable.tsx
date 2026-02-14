@@ -1,13 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSafeErrorMessage } from "@/lib/safe-error";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -202,56 +195,50 @@ export function RecentEntriesTable() {
 
   return (
     <>
-      <div className="w-full overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[100px]">REFFORN</TableHead>
-              <TableHead className="min-w-[120px]">Descrição</TableHead>
-              <TableHead className="w-[60px] text-center">QTD</TableHead>
-              <TableHead className="w-[90px]">Data</TableHead>
-              <TableHead className="w-[80px] text-center">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-semibold text-xs">
+      <div className="w-full overflow-hidden">
+        <div className="divide-y divide-border">
+          {entries.map((entry) => (
+            <div key={entry.id} className="py-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm truncate break-words">
                   {getLabel(entry)}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
+                </span>
+                {entry.novo === "S" && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                    Novo
+                  </Badge>
+                )}
+              </div>
+              {entry.novo !== "S" && (
+                <p className="text-xs text-muted-foreground truncate break-words">
                   {getDescription(entry)}
-                </TableCell>
-                <TableCell className="text-center font-medium">
-                  {entry.qtd}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {formatDate(entry.dtinsert)}
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center justify-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setEditEntry(entry)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => setDeleteEntry(entry)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                </p>
+              )}
+              <div className="flex items-center gap-3 text-xs">
+                <span className="font-medium">QTD: {entry.qtd}</span>
+                <span className="text-muted-foreground">{formatDate(entry.dtinsert)}</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setEditEntry(entry)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive hover:text-destructive"
+                    onClick={() => setDeleteEntry(entry)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Edit dialog */}
