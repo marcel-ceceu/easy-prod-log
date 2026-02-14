@@ -74,14 +74,14 @@ const Index = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className="flex flex-col min-h-screen bg-background overflow-x-hidden">
       <header className="border-b px-4 py-3">
         <h1 className="text-xl font-bold text-foreground tracking-tight text-center">
           Controle de Produtos
         </h1>
       </header>
 
-      <main className="flex-1 flex flex-col px-4 py-4 gap-4 max-w-2xl mx-auto w-full">
+      <main className="flex-1 flex flex-col px-4 py-4 gap-4 max-w-lg mx-auto w-full">
         {/* Action buttons */}
         <div className="flex gap-3">
           <Button
