@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo } from "react";
+import { useRef, useState, useMemo, useEffect } from "react";
 import { useZxing } from "react-zxing";
 import { DecodeHintType, BarcodeFormat } from "@zxing/library";
 import {
@@ -192,14 +192,61 @@ const ScannerView = ({
     constraints: {
       video: {
         facingMode: "environment",
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { min: 640, ideal: 1280 },
+        height: { min: 480, ideal: 720 },
         // @ts-ignore – focusMode is valid on Android but not in TS defs
         focusMode: { ideal: "continuous" },
       },
       audio: false,
     },
   });
+
+  // Post-stream: apply advanced focus constraints + periodic focus kick
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+
+    const applyFocusConstraints = () => {
+      const stream = video.srcObject as MediaStream;
+      if (!stream) return;
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = (track as any).getCapabilities?.();
+      const advanced: any = {};
+
+      if (capabilities?.focusMode?.includes("continuous")) {
+        advanced.focusMode = "continuous";
+      }
+      if (capabilities?.focusDistance) {
+        advanced.focusDistance = capabilities.focusDistance.min + 0.1;
+      }
+      if (capabilities?.zoom) {
+        advanced.zoom = Math.min(2.0, capabilities.zoom.max);
+      }
+
+      if (Object.keys(advanced).length > 0) {
+        track.applyConstraints({ advanced: [advanced] } as any).catch(() => {});
+      }
+    };
+
+    const timer = setTimeout(applyFocusConstraints, 1000);
+
+    // Re-kick focus every 2s to unstick cameras that freeze focus
+    const interval = setInterval(() => {
+      const stream = video.srcObject as MediaStream;
+      const track = stream?.getVideoTracks()[0];
+      if (!track) return;
+      track.applyConstraints({ advanced: [{ focusMode: "manual" }] } as any)
+        .then(() => track.applyConstraints({ advanced: [{ focusMode: "continuous" }] } as any))
+        .catch(() => {});
+    }, 2000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [ref]);
 
   const [torchOn, setTorchOn] = useState(false);
   const toggleTorch = async () => {
