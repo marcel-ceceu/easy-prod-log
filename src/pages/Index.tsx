@@ -83,23 +83,23 @@ const Index = () => {
 
       <main className="flex-1 flex flex-col px-4 py-4 gap-4 max-w-lg mx-auto w-full">
         {/* Action buttons */}
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <Button
             onClick={() => navigate("/contagem")}
             size="lg"
-            className="flex-1 gap-2 text-base"
+            className="gap-1.5 text-sm px-3"
           >
-            <ClipboardList className="h-5 w-5" />
-            Iniciar Contagem
+            <ClipboardList className="h-4 w-4 shrink-0" />
+            Contagem
           </Button>
 
           <Button
             onClick={() => setNewProdOpen(true)}
             size="lg"
             variant="outline"
-            className="gap-2 text-base"
+            className="gap-1.5 text-sm px-3"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="h-4 w-4 shrink-0" />
             Novo Produto
           </Button>
         </div>
